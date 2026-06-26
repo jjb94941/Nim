@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>NIM</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #070d14; }
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // ── Game logic ────────────────────────────────────────────────────────────
+
+    function nimSum(piles) {
+      return piles.reduce((xor, p) => xor ^ p, 0);
+    }
+
+    function computeAIMove(piles) {
+      const ns = nimSum(piles);
+      if (ns !== 0) {
+        for (let i = 0; i < piles.length; i++) {
+          const target = piles[i] ^ ns;
+          if (target < piles[i]) {
+            return { pile: i, take: piles[i] - target, type: "winning" };
+          }
+        }
+      }
+      for (let i = 0; i < piles.length; i++) {
+        if (piles[i] > 0) return { pile: i, take: 1, type: "consolation" };
+      }
+      return null;
+    }
+
+    // ── Validation ────────────────────────────────────────────────────────────
+
+    function validatePiles(inputs) {
+      const parsed = inputs.map(v => parseInt(v, 10));
+      const errors = [];
+      if (parsed.some(isNaN)) {
+        errors.push("All three piles must have a number.");
+        return { parsed, valid: false, errors };
+      }
+      parsed.forEach((v, i) => {
+        if (v <= 5) errors.push(`Pile ${i + 1} must be greater than 5.`);
+      });
+      const unique = new Set(parsed);
+      if (unique.size < parsed.length) errors.push("All three pile sizes must be different.");
+      return { parsed, valid: errors.length === 0, errors };
+    }
+
+    // ── Match pile ────────────────────────────────────────────────────────────
+
+    function MatchPile({ count, pileIndex, selected, onToggle, disabled, highlight }) {
+      return (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px" }}>
+          <div style={{ fontSize: "11px", letterSpacing: "0.12em", color: "#64748b", fontFamily: "'Courier New', monospace" }}>
+            PILE {pileIndex + 1} · {count}
+          </div>
+          <div style={{
+            display: "flex", flexWrap: "wrap", gap: "5px", justifyContent: "center",
+            maxWidth: "140px", minHeight: "60px", alignContent: "flex-start"
+          }}>
+            {Array.from({ length: count }, (_, i) => {
+              const isSelected = selected !== null && i >= count - selected;
+              return (
+                <button key={i} onClick={() => !disabled && onToggle(pileIndex, count - i)}
+                  disabled={disabled}
+                  title={`Take ${count - i} from pile ${pileIndex + 1}`}
+                  style={{
+                    width: "9px", height: "32px", borderRadius: "3px", border: "none",
+                    cursor: disabled ? "default" : "pointer",
+                    background: highlight && isSelected ? "#f59e0b" : isSelected ? "#4ade80" : "#1e293b",
+                    boxShadow: isSelected ? "0 0 6px rgba(74,222,128,0.4)" : "none",
+                    transition: "background 0.15s",
+                  }}
+                />
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    // ── Intro screen ──────────────────────────────────────────────────────────
+
+    function IntroScreen({ onContinue }) {
+      return (
+        <div style={{
+          minHeight: "100vh", background: "#070d14", color: "#e2e8f0",
+          fontFamily: "'Inter', system-ui, sans-serif",
+          display: "flex", flexDirection: "column", alignItems: "center",
+          padding: "32px 20px"
+        }}>
+          <div style={{ textAlign: "center", marginBottom: "32px" }}>
+            <div style={{ fontSize: "11px", letterSpacing: "0.25em", color: "#4ade80", marginBottom: "6px", fontFamily: "'Courier New', monospace" }}>
+              COMBINATORIAL GAME THEORY
+            </div>
+            <h1 style={{ fontSize: "48px", fontWeight: "800", margin: 0, letterSpacing: "-0.03em", color: "#f8fafc" }}>NIM</h1>
+          </div>
+
+          <div style={{
+            background: "#0a1628", border: "1px solid #1e3058", borderRadius: "12px",
+            padding: "28px 28px", width: "100%", maxWidth: "420px",
+            display: "flex", flexDirection: "column", gap: "18px"
+          }}>
+            <div style={{ fontSize: "11px", letterSpacing: "0.18em", color: "#4ade80", fontFamily: "monospace" }}>
+              HOW TO PLAY
+            </div>
+
+            <p style={{ margin: 0, fontSize: "15px", lineHeight: "1.7", color: "#cbd5e1" }}>
+              There are <strong style={{ color: "#f8fafc" }}>three piles of matches</strong>. You and the computer take turns.
+            </p>
+
+            <p style={{ margin: 0, fontSize: "15px", lineHeight: "1.7", color: "#cbd5e1" }}>
+              On your turn, choose <strong style={{ color: "#f8fafc" }}>one pile</strong> and remove <strong style={{ color: "#f8fafc" }}>any number of matches</strong> from it — at least one, up to the whole pile. You cannot take from more than one pile per turn.
+            </p>
+
+            <p style={{ margin: 0, fontSize: "15px", lineHeight: "1.7", color: "#cbd5e1" }}>
+              The player who takes the <strong style={{ color: "#4ade80" }}>last match wins</strong>.
+            </p>
+
+            <div style={{
+              background: "#0f1923", border: "1px solid #1e3a2f", borderRadius: "8px",
+              padding: "14px 16px", fontSize: "13px", color: "#64748b", lineHeight: "1.6"
+            }}>
+              💡 You set the pile sizes and choose who goes first. There is a mathematical strategy that guarantees victory — can you find it?
+            </div>
+
+            <button onClick={onContinue}
+              style={{
+                padding: "14px", background: "#4ade80", color: "#052e16",
+                border: "none", borderRadius: "8px", fontWeight: "800",
+                fontSize: "15px", letterSpacing: "0.1em", cursor: "pointer"
+              }}>
+              SET UP A GAME →
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Setup screen ──────────────────────────────────────────────────────────
+
+    function SetupPhase({ onDone }) {
+      const [pileInputs, setPileInputs] = useState(["", "", ""]);
+      const [goFirst, setGoFirst] = useState(true);
+      const [touched, setTouched] = useState(false);
+
+      const { parsed, valid, errors } = validatePiles(pileInputs);
+      const showErrors = touched && errors.length > 0;
+
+      function handleStart() {
+        setTouched(true);
+        if (!valid) return;
+        onDone(parsed, goFirst);
+      }
+
+      return (
+        <div style={{
+          minHeight: "100vh", background: "#070d14", color: "#e2e8f0",
+          fontFamily: "'Inter', system-ui, sans-serif",
+          display: "flex", flexDirection: "column", alignItems: "center",
+          padding: "32px 16px"
+        }}>
+          <div style={{ textAlign: "center", marginBottom: "32px" }}>
+            <div style={{ fontSize: "11px", letterSpacing: "0.25em", color: "#4ade80", marginBottom: "6px", fontFamily: "'Courier New', monospace" }}>
+              COMBINATORIAL GAME THEORY
+            </div>
+            <h1 style={{ fontSize: "42px", fontWeight: "800", margin: 0, letterSpacing: "-0.03em", color: "#f8fafc" }}>NIM</h1>
+          </div>
+
+          <div style={{
+            background: "#0a1628", border: "1px solid #1e3058", borderRadius: "12px",
+            padding: "28px 32px", width: "100%", maxWidth: "400px"
+          }}>
+            <div style={{ fontSize: "11px", letterSpacing: "0.18em", color: "#4ade80", marginBottom: "8px", fontFamily: "monospace" }}>
+              GAME SETUP
+            </div>
+            <div style={{ fontSize: "12px", color: "#475569", marginBottom: "20px", lineHeight: "1.5" }}>
+              Each pile must have more than 5 matches, and all three must be different.
+            </div>
+
+            <div style={{ marginBottom: "20px" }}>
+              <div style={{ fontSize: "12px", color: "#64748b", marginBottom: "10px" }}>Set pile sizes:</div>
+              <div style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
+                {pileInputs.map((v, i) => {
+                  const val = parseInt(v, 10);
+                  const pileError = touched && (isNaN(val) || val <= 5);
+                  return (
+                    <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
+                      <div style={{ fontSize: "10px", color: "#475569", fontFamily: "monospace" }}>PILE {i + 1}</div>
+                      <input
+                        type="number" min="6" max="20" value={v}
+                        onChange={e => {
+                          const next = [...pileInputs];
+                          next[i] = e.target.value;
+                          setPileInputs(next);
+                        }}
+                        style={{
+                          width: "64px", padding: "10px 6px", background: "#0f1923",
+                          border: `1px solid ${pileError ? "#f87171" : "#1e3a2f"}`,
+                          borderRadius: "6px",
+                          color: pileError ? "#f87171" : "#4ade80",
+                          fontFamily: "monospace", fontSize: "20px",
+                          textAlign: "center", outline: "none"
+                        }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Error messages */}
+            {showErrors && (
+              <div style={{
+                background: "#1c0a09", border: "1px solid #7f1d1d", borderRadius: "6px",
+                padding: "10px 14px", marginBottom: "18px"
+              }}>
+                {errors.map((e, i) => (
+                  <div key={i} style={{ fontSize: "12px", color: "#f87171", lineHeight: "1.6" }}>• {e}</div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ marginBottom: "28px" }}>
+              <div style={{ fontSize: "12px", color: "#64748b", marginBottom: "10px" }}>Who moves first?</div>
+              <div style={{ display: "flex", gap: "10px" }}>
+                {[{ label: "I GO FIRST", val: true }, { label: "COMPUTER FIRST", val: false }].map(opt => (
+                  <button key={String(opt.val)} onClick={() => setGoFirst(opt.val)}
+                    style={{
+                      flex: 1, padding: "10px 8px",
+                      background: goFirst === opt.val ? "#4ade80" : "transparent",
+                      color: goFirst === opt.val ? "#052e16" : "#64748b",
+                      border: `1px solid ${goFirst === opt.val ? "#4ade80" : "#1e293b"}`,
+                      borderRadius: "6px", fontWeight: "700", fontSize: "11px",
+                      letterSpacing: "0.08em", cursor: "pointer", transition: "all 0.2s"
+                    }}>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button onClick={handleStart}
+              style={{
+                width: "100%", padding: "13px",
+                background: "#4ade80",
+                color: "#052e16",
+                border: "none", borderRadius: "8px",
+                fontWeight: "800", fontSize: "15px",
+                letterSpacing: "0.1em", cursor: "pointer",
+                transition: "all 0.2s"
+              }}>
+              START GAME
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // ── Main game ─────────────────────────────────────────────────────────────
+
+    function NimGame() {
+      const [phase, setPhase] = useState("intro");
+      const [piles, setPiles] = useState([6, 8, 10]);
+      const [selected, setSelected] = useState([null, null, null]);
+      const [activePile, setActivePile] = useState(null);
+      const [turn, setTurn] = useState("human");
+      const [message, setMessage] = useState("");
+      const [gameOver, setGameOver] = useState(false);
+      const [winner, setWinner] = useState(null);
+      const [aiHighlight, setAiHighlight] = useState(null);
+
+      function startGame(initPiles, humanFirst) {
+        setPiles(initPiles);
+        setSelected([null, null, null]);
+        setActivePile(null);
+        setGameOver(false);
+        setWinner(null);
+        setAiHighlight(null);
+        if (humanFirst) {
+          setTurn("human");
+          setMessage("Your move — tap a match to select how many to take.");
+        } else {
+          setTurn("ai");
+          setMessage("Computer moves first…");
+        }
+        setPhase("play");
+      }
+
+      const resetSelected = () => setSelected([null, null, null]);
+
+      function handlePileToggle(pileIdx, take) {
+        if (turn !== "human" || gameOver) return;
+        if (activePile !== null && activePile !== pileIdx) return;
+        const newSelected = [null, null, null];
+        if (selected[pileIdx] === take) {
+          setSelected(newSelected);
+          setActivePile(null);
+        } else {
+          newSelected[pileIdx] = take;
+          setSelected(newSelected);
+          setActivePile(pileIdx);
+        }
+      }
+
+      function handleConfirm() {
+        if (activePile === null || selected[activePile] === null) return;
+        const take = selected[activePile];
+        const newPiles = [...piles];
+        newPiles[activePile] -= take;
+        setPiles(newPiles);
+        resetSelected();
+        setActivePile(null);
+
+        if (newPiles.every(p => p === 0)) {
+          setGameOver(true);
+          setWinner("human");
+          setMessage("You took the last match — you win! 🎉");
+          return;
+        }
+        setTurn("ai");
+        setMessage("Computer is thinking…");
+      }
+
+      useEffect(() => {
+        if (phase !== "play" || turn !== "ai" || gameOver) return;
+        const t1 = setTimeout(() => {
+          const move = computeAIMove(piles);
+          if (!move) return;
+          setAiHighlight(move);
+          setTimeout(() => {
+            const newPiles = [...piles];
+            newPiles[move.pile] -= move.take;
+            setPiles(newPiles);
+            setAiHighlight(null);
+            if (newPiles.every(p => p === 0)) {
+              setGameOver(true);
+              setWinner("ai");
+              setMessage("Computer took the last match — computer wins.");
+            } else {
+              setTurn("human");
+              setMessage(`Computer took ${move.take} from Pile ${move.pile + 1}. Your turn.`);
+            }
+          }, 900);
+        }, 700);
+        return () => clearTimeout(t1);
+      }, [turn, phase, gameOver]);
+
+      if (phase === "intro") return <IntroScreen onContinue={() => setPhase("setup")} />;
+      if (phase === "setup") return <SetupPhase onDone={startGame} />;
+
+      const canConfirm = activePile !== null && selected[activePile] !== null && turn === "human" && !gameOver;
+
+      return (
+        <div style={{
+          minHeight: "100vh", background: "#070d14", color: "#e2e8f0",
+          fontFamily: "'Inter', system-ui, sans-serif",
+          display: "flex", flexDirection: "column", alignItems: "center",
+          padding: "32px 16px"
+        }}>
+          <div style={{ textAlign: "center", marginBottom: "24px" }}>
+            <div style={{ fontSize: "11px", letterSpacing: "0.25em", color: "#4ade80", marginBottom: "6px", fontFamily: "'Courier New', monospace" }}>
+              COMBINATORIAL GAME THEORY
+            </div>
+            <h1 style={{ fontSize: "42px", fontWeight: "800", margin: 0, letterSpacing: "-0.03em", color: "#f8fafc" }}>NIM</h1>
+            <div style={{ fontSize: "13px", color: "#64748b", marginTop: "4px" }}>Bouton, 1901</div>
+          </div>
+
+          <div style={{
+            background: gameOver ? (winner === "human" ? "#052e16" : "#1c0a09") : turn === "ai" ? "#0f1923" : "#0a1628",
+            border: `1px solid ${gameOver ? (winner === "human" ? "#166534" : "#7f1d1d") : turn === "ai" ? "#1e3a2f" : "#1e3058"}`,
+            borderRadius: "8px", padding: "12px 20px", marginBottom: "24px",
+            maxWidth: "480px", width: "100%", textAlign: "center", fontSize: "14px",
+            color: gameOver ? (winner === "human" ? "#4ade80" : "#f87171") : "#94a3b8",
+            transition: "all 0.3s"
+          }}>
+            {message}
+          </div>
+
+          <div style={{ display: "flex", gap: "24px", justifyContent: "center", marginBottom: "28px", flexWrap: "wrap" }}>
+            {piles.map((count, i) => (
+              <MatchPile key={i} count={count} pileIndex={i}
+                selected={aiHighlight && aiHighlight.pile === i ? aiHighlight.take : selected[i]}
+                onToggle={handlePileToggle}
+                disabled={turn !== "human" || gameOver || (activePile !== null && activePile !== i)}
+                highlight={!!aiHighlight}
+              />
+            ))}
+          </div>
+
+          <div style={{ display: "flex", gap: "10px", marginBottom: "24px", flexWrap: "wrap", justifyContent: "center" }}>
+            <button onClick={handleConfirm} disabled={!canConfirm}
+              style={{
+                padding: "10px 24px",
+                background: canConfirm ? "#4ade80" : "#1e293b",
+                color: canConfirm ? "#052e16" : "#334155",
+                border: "none", borderRadius: "6px", fontWeight: "700",
+                fontSize: "14px", cursor: canConfirm ? "pointer" : "default",
+                letterSpacing: "0.05em", transition: "all 0.2s"
+              }}>
+              {activePile !== null && selected[activePile]
+                ? `TAKE ${selected[activePile]} FROM PILE ${activePile + 1}`
+                : "SELECT MATCHES"}
+            </button>
+            <button onClick={() => setPhase("setup")}
+              style={{
+                padding: "10px 18px", background: "transparent", color: "#64748b",
+                border: "1px solid #1e293b", borderRadius: "6px", fontWeight: "600",
+                fontSize: "13px", cursor: "pointer", letterSpacing: "0.05em"
+              }}>
+              NEW GAME
+            </button>
+          </div>
+
+          <div style={{ marginTop: "8px", fontSize: "11px", color: "#334155", textAlign: "center" }}>
+            Tap any match to select — tapping higher takes more from that pile.
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<NimGame />);
+  </script>
+</body>
+</html>
